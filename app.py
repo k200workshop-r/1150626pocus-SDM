@@ -184,6 +184,6 @@ if user_input := st.chat_input("請輸入緊急醫囑指示..."):
     # 4. 儲存至記憶庫
     st.session_state.messages.append({"role": "model", "content": full_response})
     
-    # 5. 🔊 判定是否疊加播放高壓危機音效
+    # 5. 🔊 判定是否播放音效
     if trigger_crisis:
         play_crisis_sounds()
