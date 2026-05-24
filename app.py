@@ -1,19 +1,59 @@
 import os
 import streamlit as st
-from google import genai
-from google.genai import types
 
-# 匯入病歷資料
+# 匯入 6 歲男童個案病歷資料
 from patient_case import CASE_DATA
 
 # ─── STREAMLIT 網頁基礎設定 ───
-st.set_page_config(page_title="臨床病歷決策模擬", layout="wide")
-st.title("🩺 臨床情境模擬：你與護理師互動視窗")
+st.set_page_config(page_title="小兒臨床決策模擬", layout="wide")
+st.title("🩺 臨床情境模擬：你與急診護理師互動視窗")
 
-# ─── GEMINI API 客戶端初始化 ───
-api_key = os.environ.get("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
-MODEL_ID = "gemini-2.5-flash"
+# ─── 🔊 升級版音效播放組件 ───
+
+def play_background_ambient():
+    """【聲道 1】在網頁背景持續『循環』播放急診室繁忙的吵雜聲"""
+    audio_path = "sounds/er_room.wav"
+    if os.path.exists(audio_path):
+        # loop=True 讓背景音無限循環，不干擾聊天
+        st.audio(audio_path, format="er_room.wav", loop=True, autoplay=True)
+
+
+def play_crisis_sounds():
+    """【聲道 2】當對話達3輪時『疊加』播放，哭聲與罵人聲會直接蓋在背景音上面"""
+    audio_path = "sounds/boycrying.wav", "sounds/crisis.mp3"
+    if os.path.exists(audio_path):
+        # loop=False 哭鬧跟罵人聲播完一次就定位，不會瘋狂無限重播
+        st.audio(audio_path, format="er_room.wav", loop=False, autoplay=True)
+
+
+# ─── 網頁一載入，聲道 1 隨時都在背景執勤 ───
+play_background_ambient()
+
+# ... (中間的側邊欄與歷史訊息顯示維持原樣) ...
+
+
+# ─── 住院醫師（使用者）輸入區 ───
+if user_input := st.chat_input("請輸入緊急醫囑指示..."):
+    
+    # 1. 顯示使用者訊息
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+        
+    # 2. 透過本機模擬器計算回應（裡面會計算是否達到 3 輪並回傳 trigger_crisis）
+    full_response, trigger_crisis = local_pediatric_simulator(user_input)
+
+    # 3. 顯示 AI 模擬回應
+    with st.chat_message("model"):
+        st.markdown(full_response)
+        
+    # 4. 儲存至記憶庫
+    st.session_state.messages.append({"role": "model", "content": full_response})
+    
+    # 5. 🎛️ 混音關鍵點：如果達到第 3 輪，觸發聲道 2！
+    # 此時背景的 ambient.mp3 還在播，這裡一呼叫，crisis.mp3 就會同步混音播出來！
+    if trigger_crisis:
+        play_crisis_sounds()
 
 # ─── 側邊欄：呈現病人現況與病歷摘要 ───
 with st.sidebar:
@@ -22,11 +62,9 @@ with st.sidebar:
     st.subheader(f"{meta['patient_name']} ({meta['gender']})")
     st.write(f"**主訴與情境：**\n{meta['scenario']}")
     
-    # 🌟 建議放置圖片處 1：病患外觀或情境示意圖
-    # 可以放置 6 歲兒童手捧腹部、或是急診床位的情境圖，增加臨床沉浸感。
-    # 圖片路徑可以是本地相對路徑（如 "images/child_pain.png"）或網路 URL
+    # 🖼️ 圖片放置點 1
     st.image(
-        "pediatric_scene.jpg", 
+        "https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?q=80&w=400", 
         caption="急診情境示意：急性腹痛男童", 
         use_container_width=True
     )
@@ -37,11 +75,11 @@ with st.sidebar:
     vitals = CASE_DATA["vitals_initial"]
     st.markdown(f"""
     - **血壓 (BP):** {vitals['BP']}
-    - **心跳 (HR):** {vitals['HR']}
+    - **心跳 (HR):** <span style='color:orange; font-weight:bold;'>{vitals['HR']}</span>
     - **呼吸 (RR):** {vitals['RR']}
     - **血氧 (SpO2):** {vitals['SpO2']}
-    - **體溫 (BT):** {vitals['BT']}
-    """)
+    - **體溫 (BT):** <span style='color:red; font-weight:bold;'>{vitals['BT']}</span>
+    """, unsafe_allow_html=True)
     
     st.divider()
     
@@ -50,102 +88,102 @@ with st.sidebar:
     st.markdown(f"""
     - **腹部觸診:** {pe['Abdomen']}
     - **觸診細節:** {pe['Palpation_Details']}
-    - **特殊徵象:** {pe['Special_Sign']}
-    """)
+    - **特殊徵象:** <span style='color:red; font-weight:bold;'>{pe['Special_Sign']}</span>
+    """, unsafe_allow_html=True)
     
-    # 🌟 建議放置圖片處 2：腹部九宮格、闌尾炎麥氏點 (McBurney Point) 示意圖
-    # 本案例最核心的臨床線索是 McBurney Point (+)，放置這張圖能有效提示住院醫師該點的位置與 Peritoneal sign 的關聯。
+    # 🖼️ 圖片放置點 2
     st.image(
-        "peds_ct.jpg", 
-        caption="醫學參考圖：麥氏點 (McBurney's point) 解剖學位置", 
+        "https://upload.wikimedia.org/wikipedia/commons/e/e4/McBurney%27s_point.jpg", 
+        caption="醫學參考圖：麥氏點 (McBurney's point) 位置", 
         use_container_width=True
     )
-
-# ─── 建立 AI 系統提示詞 (System Instruction) ───
-system_instruction_text = f"""
-# Role
-你是一位資深的急診護理師。此時你正在照顧一位 6 歲因急性腹痛入院的男童。你的任務是與住院醫師（使用者）對話，並執行他所下達的醫囑。
-
-# Clinical Scenario Context & Hidden Case Data
-你完整掌握該病患的所有病歷資料與後續檢驗結果（如下所示）。但請記住，除非醫師主動下達相關醫囑、安排相關檢查、或詢問相關數據，否則你絕對不能主動洩漏後續的檢查結果。
-
-- **病患元數據與病歷：** {str(CASE_DATA['case_meta'])}
-- **初始生命徵象：** {str(CASE_DATA['vitals_initial'])}
-- **理學檢查：** {str(CASE_DATA['pe_results'])}
-- **既往病歷紀錄（包含前一班的錯誤診斷）：** {str(CASE_DATA['medical_records'])}
-- **臨床檢查快捷對應數據（當醫師安排以下項目時，你可以據此回報結果）：** {str(CASE_DATA['diagnostic_results'])}
-
-# Interaction Rules（嚴格遵守：不引導、不給答案）
-1. 嚴格被動：你絕對不能主動提出任何醫療建議、檢查項目或藥物名稱。
-2. 醫囑明確性檢查：
-   - 若醫師說「打點滴」，你必須回應：「請問醫師，點滴要用什麼水？流速要開多少？」
-   - 若醫師說「準備開刀/送手術室」，你必須回應：「收到，那請問目前需要開始 NPO（禁食）嗎？有需要先照會小兒外科嗎？」(僅針對醫師提到的關鍵字進行程序確認，不主動擴展)
-   - 若醫師說「先給止痛藥」，你必須回應：「請問要開哪一種止痛藥？劑量和給藥途徑（口服/靜脈）為何？」
-3. 狀態回報：
-   - 當醫師下達正確且完整的醫囑後，你要客觀回報「執行結果」或從上述「臨床檢查快捷對應數據」中提取「病人當前數據/報告」回報給醫師。
-   - 例如醫師下達正確流速的點滴後，回報：「點滴已點上。目前男童心跳 110 次/分，血壓 100/60 mmHg。」
-4. 拒減引導：如果醫師問你「你覺得現在該做什麼？」或「你有什麼建議？」，你必須客觀回答：「醫師，我需要您明確的醫囑才能執行處置，請告訴我下一步的指示。」
-"""
 
 # ─── STREAMLIT 聊天記憶庫初始化 ───
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "model", "content": "醫師您好，我是負責照顧這位 6 歲男童的護理師。病人目前躺在病床上哭鬧，看起來有輕度脫水。請問您有什麼進一步的醫囑指示嗎？"}
+        {"role": "model", "content": "（周圍傳來急診廣播與推床吵雜聲）\n\n醫師您好，我是負責照顧這位 6 歲男童的護理師。病人目前躺在病床上縮成一團陣發性哭鬧，皮膚彈性稍差。請問您有什麼進一步的醫囑指示嗎？"}
     ]
+if "round_count" not in st.session_state:
+    st.session_state.round_count = 0
 
 # 顯示歷史聊天訊息
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
+
+# ─── 🤖 本機邏輯模擬器（小兒急診版） ───
+def local_pediatric_simulator(user_text):
+    text = user_text.lower()
+    st.session_state.round_count += 1
+    
+    trigger_crisis_sound = False
+    response_text = ""
+
+    # 規則 4：拒絕引導
+    if any(q in text for q in ["建議", "怎麼辦", "該做什麼", "你覺得", "有什麼想法"]):
+        response_text = "醫師，我需要您明確的醫囑才能執行處置，請告訴我下一步的處置指示。"
+
+    # 規則 2：醫囑明確性檢查
+    elif "點滴" in text or "iv" in text or "fluid" in text:
+        # 檢查是否包含水別與流速
+        if any(w in text for w in ["d5", "d10", "ns", "saline", "water"]) and any(f in text for f in ["ml", "qd", "流速", "run"]):
+            response_text = "收到，點滴已點上。目前男童心跳 110 次/分，血壓 100/60 mmHg，脫水狀況稍微改善。"
+        else:
+            response_text = "請問醫師，點滴要用什麼水？流速要開多少？（男童目前體重 20 公斤）"
+            
+    elif "開刀" in text or "手術" in text or "or" in text:
+        response_text = "收到，那請問目前需要開始 NPO（禁食）嗎？有需要先照會小兒外科嗎？"
+        
+    elif "止痛" in text or "pain" in text or "acetaminophen" in text:
+        response_text = "請問要開哪一種止痛藥？劑量和給藥途徑（口服/靜脈）為何？"
+        
+    elif "抽血" in text or "cbc" in text or "crp" in text or "驗尿" in text or "ua" in text:
+        response_text = f"收到，已完成採檢送驗。以下為檢驗數據回報：\n\n**【血液與尿液檢驗報告】**\n- CBC/DC & CRP: {CASE_DATA['diagnostic_results']['CBC_DC_CRP']}\n- Urine Analysis: {CASE_DATA['diagnostic_results']['UA']}"
+        
+    elif "超音波" in text or "pocus" in text or "echo" in text:
+        response_text = f"已聯絡床邊超音波評估。報告顯示：\n\n{CASE_DATA['diagnostic_results']['POCUS_Raw_Report']}"
+        
+    elif "電腦斷層" in text or "ct" in text:
+        response_text = f"已送往放射科完成電腦斷層。關鍵決策報告如下：\n\n{CASE_DATA['diagnostic_results']['Abdominal_CT_Angiography']}"
+        
+    elif "會診" in text or "照會" in text or "外科" in text:
+        response_text = f"已照會小兒外科醫師，當前照會回覆如下：\n\n{CASE_DATA['diagnostic_results']['Consult_Pediatric_Surgeon']}"
+        
+    else:
+        response_text = "收到醫師醫囑。請下達詳細的規格指令（如點滴水別流速、藥物劑量、或安排特定影像檢查）。"
+
+    # 規則 3：生理數據惡化 + 哭聲 + 家屬痛罵隱形施壓（對話達 3 輪以上）
+    if st.session_state.round_count >= 3:
+        response_text = (
+            "😫 **（⚠️ 男童開始劇烈嚎哭，家屬情緒爆發）**\n\n"
+            "「**弟弟哇哇大哭：** 肚子好痛！媽媽我好痛！！嗚嗚嗚...」\n"
+            "「**家屬憤怒咆哮：** 醫師！我們來急診躺多久了？到底有沒有在處理？你們動作怎麼這麼慢！我兒子要是盲腸破掉你們賠得起嗎？！」\n\n"
+            "**【目前病患狀態】**：男童因劇烈疼痛臉色發青、全身冷汗，心跳飆升至 130 bpm。醫師，請立刻處置！"
+        )
+        trigger_crisis_sound = True  # 觸發兒童哭鬧與現場混亂音效
+
+    return response_text, trigger_crisis_sound
+
+
 # ─── 住院醫師（使用者）輸入區 ───
-if user_input := st.chat_input("請輸入醫囑或指示例：安排 CBC 檢查、給予 NPO、打點滴..."):
+if user_input := st.chat_input("請輸入緊急醫囑指示..."):
     
     # 1. 顯示使用者訊息
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
         
-    # 2. 轉換歷史對話紀錄為 Gemini 支援的 Contents 格式
-    formatted_contents = []
-    for msg in st.session_state.messages:
-        api_role = "model" if msg["role"] == "assistant" else msg["role"]
-        formatted_contents.append(
-            types.Content(
-                role=api_role,
-                parts=[types.Part.from_text(text=msg["content"])]
-            )
-        )
+    # 2. 透過本機模擬器計算回應
+    full_response, trigger_crisis = local_pediatric_simulator(user_input)
 
-    # 3. 配置 Gemini 參數
-    tools = [types.Tool(googleSearch=types.GoogleSearch())]
-    
-    generate_content_config = types.GenerateContentConfig(
-        tools=tools,
-        system_instruction=[
-            types.Part.from_text(text=system_instruction_text),
-        ],
-    )
-
-    # 4. 呼叫 API 並以 Stream 串流輸出回覆
+    # 3. 顯示 AI 模擬回應
     with st.chat_message("model"):
-        response_placeholder = st.empty()
-        full_response = ""
+        st.markdown(full_response)
         
-        try:
-            response_stream = client.models.generate_content_stream(
-                model=MODEL_ID,
-                contents=formatted_contents,
-                config=generate_content_config,
-            )
-            
-            for chunk in response_stream:
-                if chunk.text:
-                    full_response += chunk.text
-                    response_placeholder.markdown(full_response + "▌")
-            
-            response_placeholder.markdown(full_response)
-            st.session_state.messages.append({"role": "model", "content": full_response})
-            
-        except Exception as e:
-            st.error(f"呼叫 API 時發生錯誤: {e}")
+    # 4. 儲存至記憶庫
+    st.session_state.messages.append({"role": "model", "content": full_response})
+    
+    # 5. 🔊 判定是否疊加播放高壓危機音效
+    if trigger_crisis:
+        play_crisis_sounds()
