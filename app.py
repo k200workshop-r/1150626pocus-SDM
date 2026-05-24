@@ -12,7 +12,7 @@ st.title("🩺 臨床情境模擬：你與護理師互動視窗")
 
 # ─── GEMINI API 客戶端初始化 ───
 # 優先從環境變數讀取，若找不到則使用您提供的 Key 備份
-api_key = os.environ.get("GEMINI_API_KEY", "AIzaSyC-vvhA6qZtBde-UB4HcC1aDnqDhJdnn1I")
+api_key = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 MODEL_ID = "gemini-2.5-flash"
 
