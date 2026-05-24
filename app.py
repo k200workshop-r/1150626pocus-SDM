@@ -14,7 +14,7 @@ st.title("🩺 臨床情境模擬：你與護理師互動視窗")
 # 優先從環境變數讀取，若找不到則使用您提供的 Key 備份
 api_key = os.environ.get("GEMINI_API_KEY", "AIzaSyC-vvhA6qZtBde-UB4HcC1aDnqDhJdnn1I")
 client = genai.Client(api_key=api_key)
-MODEL_ID = "gemini-3.1-pro-preview"
+MODEL_ID = "gemini-2.5-flash"
 
 # ─── 側邊欄：呈現病人現況與病歷摘要 ───
 with st.sidebar:
