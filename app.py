@@ -26,82 +26,58 @@ def play_crisis_sounds():
         st.audio(audio_path, format="er_room.wav", loop=False, autoplay=True)
 
 
-# ─── 網頁一載入，聲道 1 隨時都在背景執勤 ───
+# ─── 啟動背景繁忙環境音（隨時並行） ───
 play_background_ambient()
 
-# ... (中間的側邊欄與歷史訊息顯示維持原樣) ...
-
-
-# ─── 住院醫師（使用者）輸入區 ───
-if user_input := st.chat_input("請輸入緊急醫囑指示..."):
-    
-    # 1. 顯示使用者訊息
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
-        
-    # 2. 透過本機模擬器計算回應（裡面會計算是否達到 3 輪並回傳 trigger_crisis）
-    full_response, trigger_crisis = local_pediatric_simulator(user_input)
-
-    # 3. 顯示 AI 模擬回應
-    with st.chat_message("model"):
-        st.markdown(full_response)
-        
-    # 4. 儲存至記憶庫
-    st.session_state.messages.append({"role": "model", "content": full_response})
-    
-    # 5. 🎛️ 混音關鍵點：如果達到第 3 輪，觸發聲道 2！
-    # 此時背景的 ambient.mp3 還在播，這裡一呼叫，crisis.mp3 就會同步混音播出來！
-    if trigger_crisis:
-        play_crisis_sounds()
 
 # ─── 側邊欄：呈現病人現況與病歷摘要 ───
 with st.sidebar:
     st.header("📋 病人基本資料")
-    meta = CASE_DATA["case_meta"]
-    st.subheader(f"{meta['patient_name']} ({meta['gender']})")
-    st.write(f"**主訴與情境：**\n{meta['scenario']}")
+    meta = CASE_DATA.get("case_meta", {})
+    p_name = meta.get("patient_name", "匿名男童 (6 y/o)")
+    p_gender = meta.get("gender", "Male")
     
-    # 🖼️ 圖片放置點 1
+    st.subheader(f"{p_name} ({p_gender})")
+    st.write(f"**主訴與情境：**\n{meta.get('scenario', '')}")
+    
+    # 🖼️ 圖片放置點 1：情境示意圖
     st.image(
-        "https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?q=80&w=400", 
-        caption="急診情境示意：急性腹痛男童", 
+        "pediatric_scene.jpg", 
         use_container_width=True
     )
     
     st.divider()
     
     st.header("🌡️ 初始生命徵象 (Vitals)")
-    vitals = CASE_DATA["vitals_initial"]
+    vitals = CASE_DATA.get("vitals_initial", {})
     st.markdown(f"""
-    - **血壓 (BP):** {vitals['BP']}
-    - **心跳 (HR):** <span style='color:orange; font-weight:bold;'>{vitals['HR']}</span>
-    - **呼吸 (RR):** {vitals['RR']}
-    - **血氧 (SpO2):** {vitals['SpO2']}
-    - **體溫 (BT):** <span style='color:red; font-weight:bold;'>{vitals['BT']}</span>
+    - **血壓 (BP):** {vitals.get('BP', '')}
+    - **心跳 (HR):** <span style='color:orange; font-weight:bold;'>{vitals.get('HR', '')}</span>
+    - **呼吸 (RR):** {vitals.get('RR', '')}
+    - **血氧 (SpO2):** {vitals.get('SpO2', '')}
+    - **體溫 (BT):** <span style='color:red; font-weight:bold;'>{vitals.get('BT', '')}</span>
     """, unsafe_allow_html=True)
     
     st.divider()
     
     st.header("🩻 理學檢查焦點 (PE)")
-    pe = CASE_DATA["pe_results"]
+    pe = CASE_DATA.get("pe_results", {})
     st.markdown(f"""
-    - **腹部觸診:** {pe['Abdomen']}
-    - **觸診細節:** {pe['Palpation_Details']}
-    - **特殊徵象:** <span style='color:red; font-weight:bold;'>{pe['Special_Sign']}</span>
+    - **腹部觸診:** {pe.get('Abdomen', '')}
+    - **觸診細節:** {pe.get('Palpation_Details', '')}
+    - **特殊徵象:** <span style='color:red; font-weight:bold;'>{pe.get('Special_Sign', '')}</span>
     """, unsafe_allow_html=True)
     
-    # 🖼️ 圖片放置點 2
+    # 🖼️ 圖片放置點 2：醫學解剖示意圖
     st.image(
-        "https://upload.wikimedia.org/wikipedia/commons/e/e4/McBurney%27s_point.jpg", 
-        caption="醫學參考圖：麥氏點 (McBurney's point) 位置", 
+        "peds_ct.jpg",  
         use_container_width=True
     )
 
 # ─── STREAMLIT 聊天記憶庫初始化 ───
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "model", "content": "（周圍傳來急診廣播與推床吵雜聲）\n\n醫師您好，我是負責照顧這位 6 歲男童的護理師。病人目前躺在病床上縮成一團陣發性哭鬧，皮膚彈性稍差。請問您有什麼進一步的醫囑指示嗎？"}
+        {"role": "model", "content": "（周圍傳來急診廣播與推床吵雜聲）醫師您好，我是負責照顧這位 6 歲男童的護理師。病人目前躺在病床上縮成一團陣發性哭鬧，皮膚彈性稍差。請問您有什麼進一步的醫囑指示嗎？"}
     ]
 if "round_count" not in st.session_state:
     st.session_state.round_count = 0
@@ -112,7 +88,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 
-# ─── 🤖 本機邏輯模擬器（小兒急診版） ───
+# ─── 🤖 本機邏輯模擬器（小兒急診劇本） ───
 def local_pediatric_simulator(user_text):
     text = user_text.lower()
     st.session_state.round_count += 1
@@ -124,9 +100,8 @@ def local_pediatric_simulator(user_text):
     if any(q in text for q in ["建議", "怎麼辦", "該做什麼", "你覺得", "有什麼想法"]):
         response_text = "醫師，我需要您明確的醫囑才能執行處置，請告訴我下一步的處置指示。"
 
-    # 規則 2：醫囑明確性檢查
+    # 規則 2：醫囑明確性檢查與病歷對應
     elif "點滴" in text or "iv" in text or "fluid" in text:
-        # 檢查是否包含水別與流速
         if any(w in text for w in ["d5", "d10", "ns", "saline", "water"]) and any(f in text for f in ["ml", "qd", "流速", "run"]):
             response_text = "收到，點滴已點上。目前男童心跳 110 次/分，血壓 100/60 mmHg，脫水狀況稍微改善。"
         else:
@@ -157,8 +132,8 @@ def local_pediatric_simulator(user_text):
     if st.session_state.round_count >= 3:
         response_text = (
             "😫 **（⚠️ 男童開始劇烈嚎哭，家屬情緒爆發）**\n\n"
-            "「**弟弟哇哇大哭：** 肚子好痛！媽媽我好痛！！嗚嗚嗚...」\n"
-            "「**家屬憤怒咆哮：** 醫師！我們來急診躺多久了？到底有沒有在處理？你們動作怎麼這麼慢！我兒子要是盲腸破掉你們賠得起嗎？！」\n\n"
+            "「**弟弟哇哇大哭：** 媽媽我好痛！！😭😭😭...」\n"
+            "「**家屬憤怒咆哮：** 醫師！🤬🤬😤🤬？！」\n\n"
             "**【目前病患狀態】**：男童因劇烈疼痛臉色發青、全身冷汗，心跳飆升至 130 bpm。醫師，請立刻處置！"
         )
         trigger_crisis_sound = True  # 觸發兒童哭鬧與現場混亂音效
@@ -167,7 +142,8 @@ def local_pediatric_simulator(user_text):
 
 
 # ─── 住院醫師（使用者）輸入區 ───
-if user_input := st.chat_input("請輸入緊急醫囑指示..."):
+# 🌟 關鍵保護：全檔案唯一確定的 chat_input，並加上專屬 key
+if user_input := st.chat_input("請輸入緊急醫囑指示...", key="pediatric_unique_chat_key"):
     
     # 1. 顯示使用者訊息
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -181,9 +157,9 @@ if user_input := st.chat_input("請輸入緊急醫囑指示..."):
     with st.chat_message("model"):
         st.markdown(full_response)
         
-    # 4. 儲存至記憶庫
+    # 4. 儲存至記憶庫維持畫面
     st.session_state.messages.append({"role": "model", "content": full_response})
     
-    # 5. 🔊 判定是否播放音效
+    # 5. 🎛️ 疊加混音：如果達到第 3 輪，在繁忙背景音之上疊加哭喊音效！
     if trigger_crisis:
         play_crisis_sounds()
