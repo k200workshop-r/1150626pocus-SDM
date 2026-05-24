@@ -12,20 +12,20 @@ st.title("🩺 臨床情境模擬：你與急診護理師互動視窗")
 
 def play_background_ambient():
     """【聲道 1】在網頁背景持續『循環』播放急診室繁忙的吵雜聲 (Ambient)"""
-    audio_path = "sounds/er_room.wav" 
+    audio_path = "sounds/er_room.mp3" 
     
     if os.path.exists(audio_path):
         # loop=True 讓背景音無限循環
-        st.audio(audio_path, format="sounds/er_room.wav", loop=True, autoplay=True)
+        st.audio(audio_path, format="sounds/er_room.mp3", loop=True, autoplay=True)
 
 def play_crisis_sounds():
     """【聲道 2】同時疊加播放『男童哭聲』與『媽媽罵人聲』，兩者會一起蓋在背景音上面"""
-    cry_path = "sounds/boycrying.wav"
+    cry_path = "sounds/boycrying.mp3"
     scold_path = "sounds/crisis.mp3"
     
     # 2. 播放男童哭聲
     if os.path.exists(cry_path):
-        st.audio(cry_path, format="boycrying.wav", loop=False, autoplay=True)
+        st.audio(cry_path, format="boycrying.mp3", loop=False, autoplay=True)
     else:
         st.warning(f"找不到男童哭聲檔案：{cry_path}")
         
