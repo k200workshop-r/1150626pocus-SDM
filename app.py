@@ -5,39 +5,31 @@ import streamlit as st
 from patient_case import CASE_DATA
 
 # ─── STREAMLIT 網頁基礎設定 ───
-st.set_page_config(page_title="小兒臨床決策模擬", layout="wide")
+st.set_page_config(page_title="小兒急診臨床情境模擬", layout="wide")
 st.title("🩺 臨床情境模擬：你與急診護理師互動視窗")
 
-# ─── 🔊 音效播放組件 (GitHub 正確版) ───
+# ─── 🔊 音效播放組件 (解除瀏覽器自動播放限制版) ───
 
 def play_background_ambient():
     """【聲道 1】在網頁背景持續『循環』播放急診室繁忙的吵雜聲 (Ambient)"""
     audio_path = "sounds/er_room.mp3" 
-    
     if os.path.exists(audio_path):
-        # loop=True 讓背景音無限循環
+        # loop=True 讓背景音無限循環，autoplay=True 在互動後會自動啟動
         st.audio(audio_path, format="sounds/er_room.mp3", loop=True, autoplay=True)
 
+
 def play_crisis_sounds():
-    """【聲道 2】同時疊加播放『男童哭聲』與『媽媽罵人聲』，兩者會一起蓋在背景音上面"""
+    """【聲道 2】當對話達 3 輪時，『同時重疊』播放男童哭聲與媽媽罵人聲"""
     cry_path = "sounds/boycrying.mp3"
     scold_path = "sounds/crisis.mp3"
     
-    # 2. 播放男童哭聲
+    # 播放男童哭聲 (只播放一次 loop=False)
     if os.path.exists(cry_path):
-        st.audio(cry_path, format="boycrying.mp3", loop=False, autoplay=True)
-    else:
-        st.warning(f"找不到男童哭聲檔案：{cry_path}")
+        st.audio(cry_path, format="sounds/boycrying.mp3", loop=False, autoplay=True)
         
-    # 3. 同時播放媽媽罵人聲（兩個 st.audio 同時呼叫，瀏覽器會自動混音並行）
+    # 同時播放媽媽罵人聲 (與哭聲同時呼叫，瀏覽器會自動混音重疊)
     if os.path.exists(scold_path):
         st.audio(scold_path, format="sounds/crisis.mp3", loop=False, autoplay=True)
-    else:
-        st.warning(f"找不到媽媽罵人聲檔案：{scold_path}")
-
-
-# ─── 啟動背景繁忙環境音（隨時並行） ───
-play_background_ambient()
 
 
 # ─── 側邊欄：呈現病人現況與病歷摘要 ───
@@ -50,9 +42,9 @@ with st.sidebar:
     st.subheader(f"{p_name} ({p_gender})")
     st.write(f"**主訴與情境：**\n{meta.get('scenario', '')}")
     
-    # 🖼️ 圖片放置點 1：情境示意圖
+    # 🖼️ 圖片放置點 1
     st.image(
-        "pediatric_scene.jpg", 
+        "pediatric_scene.jpg",  
         use_container_width=True
     )
     
@@ -78,7 +70,7 @@ with st.sidebar:
     - **特殊徵象:** <span style='color:red; font-weight:bold;'>{pe.get('Special_Sign', '')}</span>
     """, unsafe_allow_html=True)
     
-    # 🖼️ 圖片放置點 2：醫學解剖示意圖
+    # 🖼️ 圖片放置點 2
     st.image(
         "peds_ct.jpg",  
         use_container_width=True
@@ -87,7 +79,7 @@ with st.sidebar:
 # ─── STREAMLIT 聊天記憶庫初始化 ───
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "model", "content": "（周圍傳來急診廣播與推床吵雜聲）醫師您好，我是負責照顧這位 6 歲男童的護理師。病人目前躺在病床上縮成一團陣發性哭鬧，皮膚彈性稍差。請問您有什麼進一步的醫囑指示嗎？"}
+        {"role": "model", "content": "醫師您好，我是負責照顧這位 6 歲男童的護理師。病人目前躺在病床上縮成一團陣發性哭鬧，皮膚彈性稍差。請問您有什麼進一步的醫囑指示嗎？"}
     ]
 if "round_count" not in st.session_state:
     st.session_state.round_count = 0
@@ -98,7 +90,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 
-# ─── 🤖 本機邏輯模擬器（小兒急診劇本） ───
+# ─── 🤖 本機邏輯模擬器 ───
 def local_pediatric_simulator(user_text):
     text = user_text.lower()
     st.session_state.round_count += 1
@@ -136,24 +128,24 @@ def local_pediatric_simulator(user_text):
         response_text = f"已照會小兒外科醫師，當前照會回覆如下：\n\n{CASE_DATA['diagnostic_results']['Consult_Pediatric_Surgeon']}"
         
     else:
-        response_text = "收到醫師醫囑。請下達詳細的規格指令（如點滴水別流速、藥物劑量、或安排特定影像檢查）。"
+        response_text = "請醫師下達明確的醫囑（如點滴水別流速、藥物劑量、或安排特定影像檢查）。"
 
     # 規則 3：生理數據惡化 + 哭聲 + 家屬痛罵隱形施壓（對話達 3 輪以上）
     if st.session_state.round_count >= 3:
         response_text = (
             "😫 **（⚠️ 男童開始劇烈嚎哭，家屬情緒爆發）**\n\n"
-            "「**弟弟哇哇大哭：** 媽媽我好痛！！😭😭😭...」\n"
-            "「**家屬憤怒咆哮：** 醫師！🤬🤬😤🤬？！」\n\n"
+            "「**弟弟哇哇大哭：**媽媽我好痛！！😭😭😭...」\n"
+            "「**家屬憤怒咆哮：** 醫師！🤬🤬😤🤬」\n\n"
             "**【目前病患狀態】**：男童因劇烈疼痛臉色發青、全身冷汗，心跳飆升至 130 bpm。醫師，請立刻處置！"
         )
-        trigger_crisis_sound = True  # 觸發兒童哭鬧與現場混亂音效
+        trigger_crisis_sound = True 
 
     return response_text, trigger_crisis_sound
 
 
 # ─── 住院醫師（使用者）輸入區 ───
-# 🌟 關鍵保護：全檔案唯一確定的 chat_input，並加上專屬 key
-if user_input := st.chat_input("請輸入緊急醫囑指示...", key="pediatric_unique_chat_key"):
+# 🌟 全檔案唯一確定的 chat_input，並加上專屬唯一的 key 參數防止報錯
+if user_input := st.chat_input("請輸入緊急醫囑指示...", key="pediatric_perfect_chat_key"):
     
     # 1. 顯示使用者訊息
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -170,6 +162,11 @@ if user_input := st.chat_input("請輸入緊急醫囑指示...", key="pediatric_
     # 4. 儲存至記憶庫維持畫面
     st.session_state.messages.append({"role": "model", "content": full_response})
     
-    # 5. 🎛️ 疊加混音：如果達到第 3 輪，在繁忙背景音之上疊加哭喊音效！
+    # ─── 🎛️ 聲音自動混音流程控制區 ───
+    
+    # A. 只要學生按下 Enter 開始互動，立刻自動啟動背景繁忙環境音（規避瀏覽器靜音限制）
+    play_background_ambient()
+    
+    # B. 當來到第 3 輪觸發高壓危機時，同步啟動哭聲與媽媽罵人聲（與背景音合流混音）
     if trigger_crisis:
         play_crisis_sounds()
