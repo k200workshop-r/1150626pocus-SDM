@@ -74,7 +74,7 @@ with st.sidebar:
     st.divider()
     
 st.header("理學檢查焦點 (PE)")
-    st.markdown("""
+st.markdown("""
     - **眼部檢查:** 鞏膜黃染 (Icteric sclera)
     - **腹部觸診:** 腹部平坦、無壓痛、無反彈痛
     """, unsafe_allow_html=True)
