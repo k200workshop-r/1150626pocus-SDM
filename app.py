@@ -1,7 +1,8 @@
 import os
 import time
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh  # 引入自動重新整理套件
+from streamlit_autorefresh import st_autorefresh
+from PIL import Image
 
 # ─── STREAMLIT 網頁基礎設定 ───
 st.set_page_config(page_title="GI 病房臨床情境模擬", layout="wide")
@@ -60,11 +61,17 @@ with st.sidebar:
         "並合併腹脹、排氣增加，近一個月內體重不明原因下降約 2–3 公斤。"
     )
     
-    # 🖼️ 【圖片放置點 1】修正縮排
-    st.image(
-        "clinical_performance.jpg", 
-        width="stretch"
-    )
+ # ─── 🖼️ 【圖片放置點 1】安全讀取版本 ───
+    img_path_1 = "clinical_performance.jpg"
+    if os.path.exists(img_path_1):
+        try:
+            # 檢查圖片是否能正常被 Python 辨識打開
+            with Image.open(img_path_1) as img:
+                st.image(img_path_1, width="stretch")
+        except Exception as e:
+            st.error(f"❌ 側邊欄圖片損毀：{img_path_1}，請在電腦重新存成 JPG 後上傳。")
+    else:
+        st.warning(f"⚠️ 找不到側邊欄圖片檔案：{img_path_1}，請確認是否上傳到 GitHub。")
     
     st.divider()
     
@@ -85,11 +92,16 @@ st.markdown("""
 - **腹部觸診:** 腹部平坦、無壓痛、無反彈痛
 """, unsafe_allow_html=True)
     
-# 🖼️ 【圖片放置點 2】修正縮排
-st.image(
-    "structure.jpg", 
-    width="stretch"
-)
+# ─── 🖼️ 【圖片放置點 2】安全讀取版本 ───
+img_path_2 = "structure.jpg"
+if os.path.exists(img_path_2):
+    try:
+        with Image.open(img_path_2) as img:
+            st.image(img_path_2, width="stretch")
+    except Exception as e:
+        st.error(f"❌ 理學檢查圖片損毀：{img_path_2}")
+else:
+    st.warning(f"⚠️ 找不到理學檢查圖片檔案：{img_path_2}")
 
 # ─── STREAMLIT 聊天記憶庫初始化 ───
 if "messages" not in st.session_state:
