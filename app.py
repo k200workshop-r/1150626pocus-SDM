@@ -63,7 +63,7 @@ with st.sidebar:
     # 🖼️ 【圖片放置點 1】修正縮排
     st.image(
         "clinical_performance.jpg", 
-        use_container_width=True
+        width="stretch"
     )
     
     st.divider()
@@ -88,7 +88,7 @@ st.markdown("""
 # 🖼️ 【圖片放置點 2】修正縮排
 st.image(
     "structure.jpg", 
-    use_container_width=True
+    width="stretch"
 )
 
 # ─── STREAMLIT 聊天記憶庫初始化 ───
