@@ -80,7 +80,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
     
     # 🖼️ 【圖片放置點 2：醫學基礎參考圖】
-    st.image(
+st.image(
         "structure.jpg", 
         use_container_width=True
     )
