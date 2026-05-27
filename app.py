@@ -174,8 +174,8 @@ with st.sidebar:
     
 try:
         st.image("room.jpg", use_container_width=True)
-    except Exception:
-        st.caption("⚠️ [側邊欄參考圖片載入中]")  # 💡 這一行必須往右縮排！屬於 except 的內部備案
+except Exception:
+        st.caption("⚠️ [側邊欄參考圖片載入中]")
         
     # 接下來這行（第 181 行）才能恢復原本的位置
     if "messages" not in st.session_state:
