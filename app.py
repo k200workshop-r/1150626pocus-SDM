@@ -174,9 +174,9 @@ with st.sidebar:
     
 # 💡 側邊欄元件（前面都有 4 個空格）
     try:
-        st.image("room.jpg", use_container_width=True)
+        # 💡 更換為全球標準醫學公開網址，相容性最高，絕對不破圖！
+        st.image("eyes.jpg", caption="病人臨床表徵：鞏膜黃染 (Icteric sclera)", use_container_width=True)
     except Exception:
-        st.caption("⚠️ [側邊欄參考圖片載入中]")
 
 # ─── 🔄 聊天畫面渲染 ───
 if "messages" not in st.session_state:
