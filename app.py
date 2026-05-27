@@ -172,15 +172,14 @@ with st.sidebar:
     st.subheader("張先生 (52 y/o) (Male)")
     st.write("**病史摘要：**\n糖尿病及 B 肝帶原。因全身發黃、尿液變茶色一個禮拜，由急診收治入院。CRE: 1.3 mg/dl, Total Bilirubin: 9.5 mg/dl。")
     
-try:
+# 💡 側邊欄元件（前面都有 4 個空格）
+    try:
         st.image("room.jpg", use_container_width=True)
-except Exception:
+    except Exception:
         st.caption("⚠️ [側邊欄參考圖片載入中]")
-        
-    # 接下來這行（第 181 行）才能恢復原本的位置
-    if "messages" not in st.session_state:
 
 # ─── 🔄 STREAMLIT 聊天畫面記憶庫初始化 ───
+# 💡 關鍵修正：這一行 if 必須完全靠到最左邊（完全沒有空格），它是獨立的主線！
 if "messages" not in st.session_state:
     reset_simulation()
 
