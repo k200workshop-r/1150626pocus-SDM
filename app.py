@@ -1,232 +1,250 @@
 import os
 import time
 import streamlit as st
+from google import genai
+from google.genai import types
+from pydantic import BaseModel, Field
 from streamlit_autorefresh import st_autorefresh
-from PIL import Image
 
 # ─── STREAMLIT 網頁基礎設定 ───
 st.set_page_config(page_title="GI 病房臨床情境模擬", layout="wide")
-st.title("🩺 臨床情境模擬：內科病房模擬")
-
-# ─── 🔊 音效播放組件 (解鎖自動播放限制版) ───
-def play_background_ambient():
-    """【聲道 1】在網頁背景持續『循環』播放病房/醫院繁忙的吵雜聲"""
-    audio_path = "sounds1/ambient.mp3" 
-    if os.path.exists(audio_path):
-        st.audio(audio_path, format="sounds1/ambient.mp3", loop=True, autoplay=True)
+st.title("🩺 臨床情境模擬：內科病房")
 
 # ─── ⏱️ 20分鐘倒數計時系統記憶庫初始化 ───
 if "start_time" not in st.session_state:
-    st.session_state.start_time = None  
+    st.session_state.start_time = None  # 紀錄開始倒數的時間點
 if "time_up" not in st.session_state:
-    st.session_state.time_up = False    
+    st.session_state.time_up = False    # 標記時間是否用盡
+if "round_count" not in st.session_state:
+    st.session_state.round_count = 0    # 計算累積對話回合數
 
-TOTAL_SECONDS = 20 * 60
+TOTAL_SECONDS = 20 * 60  # 20 分鐘 (1200秒)
 
-# 💡 如果已經開始計時，且時間還沒到，就啟動每 1 秒自動重新整理網頁，讓計時器持續倒數
+# 🔄 倒數計時啟動後，開啟背景每秒自動刷新機制，確保時間雷打不動地持續倒數
 if st.session_state.start_time is not None and not st.session_state.time_up:
-    st_autorefresh(interval=1000, key="countdown_timer")
+    st_autorefresh(interval=1000, key="timer_counter")
 
-# ─── 📋 側邊欄：呈現病人現況、計時器、以及側邊欄圖片 ───
+
+# ─── 🔄 重置新回合的專用函式 ───
+def reset_simulation():
+    """清除歷史紀錄與計時器，重置模擬狀態"""
+    st.session_state.start_time = None
+    st.session_state.time_up = False
+    st.session_state.round_count = 0
+    st.session_state.messages = [
+        {
+            "role": "model", 
+            "content": (
+                "病房護理師回報：\n"
+                "「醫師你好，我是負責看顧 27 床張先生的護理師。病人是 52 歲男性，過去有糖尿病和 B 肝。這次因為全身發黃、尿液變茶色一個禮拜，診所看過懷疑是急性肝炎，但吃藥沒好轉轉過來的。目前人清醒，沒燒沒痛，但血壓有點高（177/98 mmHg），鞏膜黃染蠻明顯的。請問醫師，我們接下來第一步要安排什麼處置或影像檢查？」"
+            ),
+            "image_url": None,
+            "image_caption": None
+        }
+    ]
+
+
+# ─── 🗄️ Pydantic 結構化輸出定義 ───
+class NurseResponse(BaseModel):
+    response_text: str = Field(description="在此填入護理師依據行為準則冷靜回應或反問的文字（支援 Markdown）")
+    trigger_crisis: bool = Field(description="當學員處置延誤或進入家屬情緒崩潰情境時為 true，其餘為 false")
+    image_url: str = Field(default=None, description="需要跳出的醫學影像網址（CT 或 MRI），無則填 None")
+    image_caption: str = Field(default=None, description="影像圖說與臨床 Findings 描述，無則填 None")
+
+
+# ─── 🤖 Google AI Studio API 呼叫核心 ───
+def call_gemini_jaundice_api(user_message: str) -> NurseResponse:
+    """串接最新 Google GenAI SDK (gemini-2.5-pro)"""
+    client = genai.Client(
+        api_key=os.environ.get("GEMINI_API_KEY"),
+    )
+
+    # 完整融入 4 大臨床互動鐵律與黃疸個案完整病歷數據庫
+    system_instruction = """# Role
+你是一位在醫學中心腸胃內科病房工作多年的資深專科護理師 （NP）。說話冷靜、講求醫療專業。你不會主動引導住院醫師，一切以醫師親口下達的指令（醫囑）為準。
+
+# Scenario Context (52-year-old Male Case Data)
+- 病人背景：52 歲男性，糖尿病及 B 型肝炎帶原者。
+- 主訴/現病史：住院前 7 天全身黃疸、尿液呈茶色，合併腹脹、排氣增加，近一個月體重下降 2-3 公斤。診所曾懷疑急性肝炎，給藥無效且黃疸持續惡化，轉至本院急診收治住院。
+- 初始生命徵象：GCS E4V5M6, 體溫 36.5°C, 血壓 177/98 mmHg, 脈搏 80 次/分, 呼吸 18 次/分, SpO₂ 100% (room air)。
+- 身體檢查 (PE)：鞏膜黃染明顯，腹部平坦無壓痛、無反彈痛、無反胃。
+
+[完整病歷檔案庫數據]
+- 4/3 Admission Lab: GOT 172, GPT 294, r-GT 1356, Total Bilirubin 9.5 mg/dl, Direct Bilirubin 9.3 mg/dl.
+- 4/3 Upper Abdomen CT: 胰臟鉤突及胰頭處見低增強結節性病灶、上游胰管擴張、雙側肝內膽管與總膽管輕度擴張，高度懷疑胰頭惡性腫瘤。
+- 4/6 ERCP Report: 執行經內視鏡括約肌切開術 (EST) + 膽道切片 x3 + 放置膽道塑膠支架 (ERBD, 8.5 Fr x 7 cm) 與胰管支架以緩解黃疸。
+- 4/9 Pathology: 切片報告證實為胰臟腺癌 (Pancreas adenocarcinoma)。
+- 4/11 Pancreas MRI: 證實胰臟鉤突惡性腫瘤伴隨「多發性肝轉移 (Multiple hepatic metastasis)」，屬晚期無法切除之癌症。個案隨後辦理自動出院 (AAD) 轉至台大醫院尋求第二意見。
+
+# Response Rules & Behavior Guidelines (🚨 臨床互動核心鐵律)
+
+1. 嚴格被動 (Strict Passivity)
+   - 即使病人黃疸持續惡化或癌症報告出來，妳也絕對不能主動提出任何處置或檢查建議（例如絕對不能主動問：「要幫他排 ERCP 減黃嗎？」、「要不要看切片報告？」、「要照會 GS 外科評估手術嗎？」）。
+   - 面對醫師的無效詢問（如：「妳覺得接下來該排什麼檢查？」），妳必須冷靜拒絕並要求明確醫囑：「醫師，病人目前鞏膜黃染明顯，生命徵象穩定，請您開立明確的檢查或處置醫囑，我會立刻為您安排。」
+
+2. 不完整醫囑的應對機制 (防呆反問)
+   - 若學員指令模糊、不具體，妳必須以資深 NP 的專業進行精確反問，逼學員補齊劑量、路徑或細節：
+     * 醫囑模糊「幫他打點滴」 ── 妳必須反問：「收到，請問目前要點滴輸注什麼常規液體？流速設定多少？病人目前自訴無腹痛、可正常進食。」
+     * 醫囑模糊「排個常規腹部電腦斷層（CT）」 ── 妳必須反問：「放射科詢問，病人目前是否已確認 NPO 狀態？另外，今天（5/15）剛送入病房，CRE 報告為 1.3 mg/dl，是否要立刻開立含顯影劑的常規 CT 醫囑？」
+     * 醫囑模糊「注意他的血糖和生命徵象」 ── 妳必須反問：「收到，已接上常規量測。請問常規血壓和血糖（病人有 DM 病史）需要設定每幾小時追蹤一次？」
+     * 醫囑模糊「準備做內視鏡或聯絡會診」 ── 妳必須反問：「收到，請問目前是要優先聯絡內視鏡室安排 5/18 的 ERCP 進行膽道減黃與切片，還是要優先照會一般外科（GS）或腫瘤科醫師進行評估？」
+     * 醫囑模糊「等報告出來再說」 ── 妳必須反問：「收到，請問目前是要優先追蹤 5/18 的 ERCP 膽道切片病理報告，還是 5/23 的胰臟磁振造影（MRI）癌症分期報告？」
+
+3. 面對學員的「純詢問」或「不完整打聽」時的應對
+   - 妳絕對不能幫醫師做決定，也不要給予模糊回應。妳必須冷靜地用當前病歷內的生理與檢驗數據回絕他，逼他開出明確醫囑：
+     * 當學員問「他目前的黃疸和肝功能數值是多少？」 ── 妳必須回應：「醫師，5/15 抽血報告顯示 GOT 172 U/L, GPT 294 U/L, r-GT 1356 U/L，Total Bilirubin 高達 9.5 mg/dl, Direct Bilirubin 9.3 mg/dl。請下達下一步減黃處置（如安排 PTCD 或 ERCP）或進一步影像檢查的醫囑！」
+     * 當學員問「切片報告或 MRI 出來了嗎？是什麼結果？」 ── 妳必須回應：「目前切片與 MRI 報告均已在系統中。醫師，病人生命徵象不穩定或需進行臨床病情解釋，請您明確下達『追蹤切片病理/MRI分期報告』或『進行病情解釋』的明確指令，我會立刻為您調出檔案。」
+
+4. 利用生理數據與家屬情緒惡化進行隱形施壓
+   - 如果住院醫師遲遲沒有下達「安排 ERCP 減黃」、「追蹤病理切片報告」以及「執行晚期癌症病情解釋」，隨著對話每進行一輪（超過 3 輪對話），病患黃疸將進行性惡化。
+   - 到了第 3 輪以後，家屬與病患得知電腦斷層與 MRI 高度懷疑胰臟腺癌合併多發性肝轉移後，情緒會全面崩潰，強烈要求辦理自動出院（AAD）轉院至台大醫院。此時請將 trigger_crisis 設為 true。
+
+# Interaction & Image Logic (圖片渲染邏輯)
+1. 若學員指令明確提及「電腦斷層」、「CT」或「查看 CT 影像」：
+   - 將 JSON 中的 image_url 設為 'Pancreatic_ct.jpg'。
+   - image_caption 設為 '圖：腹部電腦斷層 (CT) '
+   
+2. 若學員指令明確提及「核磁共振」、「磁振造影」、「MRI」或「癌症分期」：
+   - 將 JSON 中的 image_url 設為 '4.jpg'。
+   - image_caption 設為 '圖：胰臟磁振造影 (Pancreas MRI) 顯示胰臟惡性腫瘤已進展至多發性肝轉移 (Hepatic metastasis)。'
+
+3. 若學員下達其他一般處置（如給藥、點滴等），將 image_url 與 image_caption 均設為 null。
+
+# Output Format
+必須嚴格遵守以下 JSON 欄位名稱回傳：
+{
+  "response_text": "妳依據上述規則冷靜給予的反問、拒絕或執行回報文字（支援 Markdown）",
+  "trigger_crisis": false,
+  "image_url": null,
+  "image_caption": null
+}
+"""
+
+    generate_content_config = types.GenerateContentConfig(
+        thinking_config=types.ThinkingConfig(thinking_budget=-1),
+        temperature=0.35,
+        response_mime_type="application/json",
+        response_schema=NurseResponse,
+        system_instruction=system_instruction
+    )
+
+    response = client.models.generate_content(
+        model="gemini-2.5-pro",
+        contents=f"【學員當前對話輪數：{st.session_state.round_count}】學員指令：{user_message}",
+        config=generate_content_config,
+    )
+    return NurseResponse.model_validate_json(response.text)
+
+
+# ─── 📋 側邊欄配置 ───
 with st.sidebar:
     st.header("⏳ 臨床決策時間")
     timer_placeholder = st.empty()  
     
+    # 🔘 手動按鈕清除所有對話紀錄與重來
+    if st.button("🔄 開始新回合（清空對話重來）", use_container_width=True):
+        reset_simulation()
+        st.rerun()
+
+    # ⏱️ 計算並檢查 20 分鐘限時機制
     if st.session_state.start_time is not None:
         elapsed_time = time.time() - st.session_state.start_time
         remaining_time = max(0, TOTAL_SECONDS - elapsed_time)
-        if remaining_time <= 0:
+        
+        # ⚡ 20分鐘時間到，自動清除前面所有的歷史紀錄與影像
+        if remaining_time <= 0 and not st.session_state.time_up:
             st.session_state.time_up = True
-            remaining_time = 0
+            st.session_state.messages = []  
+            st.rerun()
             
         mins, secs = divmod(int(remaining_time), 60)
         time_str = f"{mins:02d}:{secs:02d}"
         
         if remaining_time > 300:
             timer_placeholder.metric(label="剩餘評估時間", value=time_str)
-        elif remaining_time > 0:
-            timer_placeholder.metric(label="🚨 警告：時間即將耗盡", value=time_str, delta="-時間危急", delta_color="inverse")
         else:
-            timer_placeholder.metric(label="⏱️ 時間到！", value="00:00", delta="-評估超時", delta_color="inverse")
+            timer_placeholder.metric(label="🚨 警告：時間即將耗盡", value=time_str, delta="-時間危急", delta_color="inverse")
     else:
         timer_placeholder.metric(label="尚未開始計時", value="20:00")
 
     st.divider()
-
     st.header("📋 病人基本資料")
     st.subheader("張先生 (52 y/o) (Male)")
-    st.write(
-        "**病史摘要：**\n"
-        "病人過去有糖尿病與 B 型肝炎帶原病史。住院前 7 天開始出現全身黃疸及茶色尿，"
-        "並合併腹脹、排氣增加，近一個月內體重不明原因下降約 2–3 公斤。"
-    )
+    st.write("**病史摘要：**\n糖尿病及 B 肝帶原。因全身發黃、尿液變茶色一個禮拜，由急診收治入院。CRE: 1.3 mg/dl, Total Bilirubin: 9.5 mg/dl。")
     
- # ─── 🖼️ 【圖片放置點 1】安全讀取版本 ───
-    img_path_1 = "clinical_performance.jpg"
-    if os.path.exists(img_path_1):
-        try:
-            # 檢查圖片是否能正常被 Python 辨識打開
-            with Image.open(img_path_1) as img:
-                st.image(img_path_1, width="stretch")
-        except Exception as e:
-            st.error(f"❌ 側邊欄圖片損毀：{img_path_1}，請在電腦重新存成 JPG 後上傳。")
-    else:
-        st.warning(f"⚠️ 找不到側邊欄圖片檔案：{img_path_1}，請確認是否上傳到 GitHub。")
-    
-    st.divider()
-    
-    st.header("🌡️ 當前生命徵象 (Vitals)")
-    # 修正原本這裡多出來的縮排
-    st.markdown("""
-    - **意識狀態 (GCS):** E4V5M6 (清楚)
-    - **體溫 (BT):** 36.5 °C
-    - **血壓 (BP):** 177/98 mmHg
-    - **心跳 (HR):** 80 次/分鐘
-    """, unsafe_allow_html=True)
-    
-    st.divider()
-    
-st.header("理學檢查焦點 (PE)")
-st.markdown("""
-- **眼部檢查:** 鞏膜黃染 (Icteric sclera)
-- **腹部觸診:** 腹部平坦、無壓痛、無反彈痛
-""", unsafe_allow_html=True)
-    
-# ─── 🖼️ 【圖片放置點 2】安全讀取版本 ───
-img_path_2 = "structure.jpg"
-if os.path.exists(img_path_2):
     try:
-        with Image.open(img_path_2) as img:
-            st.image(img_path_2, width="stretch")
-    except Exception as e:
-        st.error(f"❌ 理學檢查圖片損毀：{img_path_2}")
-else:
-    st.warning(f"⚠️ 找不到理學檢查圖片檔案：{img_path_2}")
+        st.image("room.jpg", use_container_width=True)
+    except Exception:
 
-# ─── STREAMLIT 聊天記憶庫初始化 ───
+
+# ─── 🔄 STREAMLIT 聊天畫面記憶庫初始化 ───
 if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "model", "content": (
-            "病房護理師回報：\n"
-            "「醫師你好，我是負責看顧 27 床張先生的護理師。病人是 52 歲男性，過去有糖尿病和 B 肝。這次因為全身發黃、尿液變茶色一個禮拜，診所看過懷疑是急性肝炎，但吃藥沒好轉轉過來的。目前人清醒，沒燒沒痛，但血壓有點高（177/98 mmHg），鞏膜黃染蠻明顯的。"
-            "請問醫師，我們接下來第一步要安排什麼處置或影像檢查？」"
-        )}
-    ]
-if "round_count" not in st.session_state:
-    st.session_state.round_count = 0
+    reset_simulation()
 
-# 顯示歷史聊天訊息
+# 顯示歷史對話紀錄（20 分鐘內持續追蹤，內建 try-except 外部防破圖保護罩）
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        if "image_url" in msg and msg["image_url"]:
-            st.image(msg["image_url"], caption=msg.get("image_caption", ""), width=500)
+        if msg.get("image_url"):
+            try:
+                st.image(msg["image_url"], caption=msg.get("image_caption"), width=550)
+            except Exception:
 
-# ─── 🤖 本機智慧型邏輯模擬器 ───
-def local_clinical_simulator(user_text):
-    text = user_text.lower()
-    st.session_state.round_count += 1
-    
-    # ⭐ 核心修改：一旦輸入第一個指令（不論輸入什麼），如果尚未計時，立刻啟動計時器
-    if st.session_state.start_time is None:
-        st.session_state.start_time = time.time()
-        
-    response_text = ""
-    image_url = None
-    image_caption = ""
 
-    # 1. 拒絕引導
-    if any(q in text for q in ["建議", "怎麼辦", "該做什麼", "你覺得", "有什麼想法"]):
-        response_text = "醫師，這是阻塞性黃疸個案，目前病因尚不明確。我需要你明確的處置醫囑才能執行，請下達下一步明確指示。"
-
-    # 2. 醫囑精確性檢查
-    elif "點滴" in text or "iv" in text or "fluid" in text or "輸液" in text:
-        if any(w in text for w in ["flomoxef", "抗生素", "ns", "saline", "water"]) and any(f in text for f in ["ml", "qd", "流速", "run", "q8h"]):
-            response_text = "好的，目前已為張先生點上點滴，並靜脈給藥。另外，病人有糖尿病病史，目前的急診血糖檢驗值偏高，為 161 mg/dl。"
-        else:
-            response_text = "請問醫師，點滴水別要開什麼？流速要開多少？（提示：病人有糖尿病病史，目前血糖值為 161 mg/dl。若要給予經驗性抗生素治療，請下達包含藥名、劑量與流速的完整規格指示）。"
-            
-    elif "電腦斷層" in text or "ct" in text or "影像" in text:
-        response_text = (
-            "已為您調出 5/1 開立的**【腹部電腦斷層 (Abdomen CT Routine) 報告】**：\n"
-            "1. **胰臟病灶**：於胰臟鉤突 (uncinate process) 及胰頭處發現一處邊界不清之低增強結節性病灶 (ill-defined hypoenhancing nodular lesion)，高度疑似胰頭腫瘤（需強烈考慮惡性腫瘤可能）。\n"
-            "2. **膽管擴張**：伴隨主胰管擴張、雙側肝內膽管 (IHD) 及總膽管 (CBD) 輕度擴張，符合阻塞性黃疸表現。\n"
-            "3. **其餘發現**：右腎小囊腫、攝護腺肥大合併鈣化、主動脈粥狀硬化。請問下一步要安排緊急減黃引流嗎？"
-        )
-        image_url = "Pancreatic_ct.jpg"
-        image_caption = "可見胰頭處結節病灶與上游膽管擴張"
-        
-    elif "減黃" in text or "引流" in text or "ptcd" in text:
-        response_text = "好的！已立刻聯絡放射科。5/2 已順利為病人執行 **PTCD（經皮經肝膽道引流術）** 緊急減黃，目前順利引流出茶色膽汁，黃疸與腹脹症狀有稍微緩解。請問後續是否要在 5/4 進一步安排內視鏡介入處置？"
-        
-    elif "內視鏡" in text or "ercp" in text or "支架" in text or "erbd" in text:
-        response_text = (
-            "好的，已於 5/18 順利送至內視鏡室完成 **ERCP**：\n"
-            "- 順利在 distal CBD 放置塑膠支架 (ERBD, 8.5 Fr x 7 cm) 進行引流。\n"
-            "- 已同步在遠端總膽管狹窄處完成**膽道內切片 (Endobiliary biopsy x 3#)** 送檢，目前常規監測術後狀況。"
-        )
-        
-    elif "病理" in text or "切片" in text or "報告" in text or "biopsy" in text:
-        response_text = "醫師，5/7 內視鏡膽道切片病理報告（Biopsy Pathology）結果回報了：檢體顯微鏡下證實為 **Adenocarcinoma（腺癌）**。目前確診為胰臟腺癌，請問醫師是否要安排進一步的癌症期別分期（Staging）影像檢查？"
-        
-    elif "磁振造影" in text or "mri" in text or "分期" in text or "staging" in text:
-        response_text = (
-            "報告醫師，5/9 已完成 **胰臟核磁共振 (Pancreas MRI)** 以及胸部 CT。關鍵報告如下：\n"
-            "- **遠端擴散**：胸部 X 光及胸部 CT 無明顯遠端肺轉移。\n"
-            "- **🚨 嚴重發現**：MRI 證實胰臟鉤突惡性腫瘤，但肝臟內部已出現**多發性肝轉移 (Multiple hepatic metastasis)**！\n"
-            "目前臨床分期確定為晚期癌症。（💡 護理師已將 MRI 分期影像切換至主螢幕如下）"
-        )
-        image_url = "Liver_metastases_MRI.jpg"
-        image_caption = "張先生的核磁共振影像：肝臟內可見多發性轉移性結節性病灶"
-        
-    elif "會診" in text or "照會" in text or "外科" in text or "gs" in text or "腫瘤" in text:
-        response_text = "已召集一般外科與血液腫瘤科會診。醫師評估後回覆：因合併多發性肝轉移，目前無法進行根除性手術（如 Whipple 手術），建議由放腫科接手評估全身性化學治療。請問醫師，需要安排時間向病人及家屬解釋病情嗎？"
-        
-    elif "轉院" in text or "aad" in text or "台大" in text or "出院" in text:
-        response_text = "將協助辦理 **AAD（自動出院）**。病歷摘要與病理報告已印出，轉診目的地開立為台大醫院，已交代家屬相關注意事項，張先生已由太太陪同離院辦理手續。"
-        
-    else:
-        response_text = "病人目前有嚴重的阻塞性黃疸，請確認下一步明確的處置指令（例如：安排影像檢查 CT、下達精確的點滴水別與流速、追蹤病理切片結果、或安排 MRI 進行 Staging 分期評估）。"
-
-    # 3. 高壓隱形施壓機制
-    if st.session_state.round_count >= 3:
-        response_text = (
-            "😫 **（⚠️ 病人與家屬得知電腦斷層高度懷疑胰頭惡性腫瘤，且 MRI 證實多發性肝轉移後，情緒全面崩潰）**\n\n"
-            "「**張先生眼眶泛紅痛哭：** 怎麼會這樣...我只是皮膚變黃、肚子有點脹而已...怎麼一到你們大醫院檢查，就直接跟我說已經末期擴散了、不能開刀了...」\n"
-            "「**太太焦慮憤怒：** 醫師！前天診所分明說只是急性肝炎，吃藥就會好！為什麼來這裡住幾天院，就變成癌症末期？！到底能不能治？！我們要求立刻辦自動出院（AAD），我們要轉去台大醫院找名醫看！現在立刻幫我們弄轉院手續，一分鐘都不要拖！」\n\n"
-            "**【目前病患狀態】**：家屬防衛心極高，拒絕本院任何進一步處置，強烈要求簽字 AAD 轉診台大。醫師，請執行高階醫病溝通與後續離院/轉診處置醫囑！"
-        )
-        image_url = "AAD.jpg"
-
-    return response_text, image_url, image_caption
-
-# ─── 住院醫師（使用者）輸入區 ───
+# ─── 住院醫師（使用者）輸入處理區 ───
 if st.session_state.time_up:
-    st.chat_input("⏱️ 20分鐘評估時間已結束！無法再下達醫囑。", disabled=True, key="gi_nurse_chat_key")
+    st.error("⏱️ 20分鐘評估時間已結束！前方的對話與醫療影像紀錄已自動清除完畢。")
+    st.info("💡 請點擊左側面板的「🔄 開始新回合」按鈕重新發起挑戰。")
+    st.chat_input("時間已耗盡，請重新開啟新回合。", disabled=True, key="gi_nurse_chat_key")
 else:
-    if user_input := st.chat_input("請輸入緊急醫囑指示...", key="gi_nurse_chat_key"):
-        st.session_state.messages.append({"role": "user", "content": user_input})
+    if user_input := st.chat_input("請輸入緊急處置或追蹤醫囑...", key="gi_nurse_chat_key"):
+        
+        # ⚡ 只要學員一輸入第一個指令，立刻啟動 20 分鐘背景倒數計時
+        if st.session_state.start_time is None:
+            st.session_state.start_time = time.time()
+        st.session_state.round_count += 1
+            
+        # 1. 立即將學員的對話同步到網頁上
         with st.chat_message("user"):
             st.markdown(user_input)
-            
-        # 透過智慧型本機模擬器計算回應
-        full_response, img_url, img_caption = local_clinical_simulator(user_input)
-
-        # 顯示護理師文字回應
+        st.session_state.messages.append({"role": "user", "content": user_input, "image_url": None, "image_caption": None})
+        
+        # 2. 串接 API 獲取資深 NP 嚴格被動的回覆
         with st.chat_message("model"):
-            st.markdown(full_response)
+            with st.spinner("護理師確認醫囑中..."):
+                try:
+                    ai_output = call_gemini_jaundice_api(user_input)
+                    nurse_talk = ai_output.response_text
+                    img_url = ai_output.image_url
+                    img_caption = ai_output.image_caption
+                except Exception as e:
+                    nurse_talk = f"⚠️ 護理師正忙於常規照護中，請重新下達明確處置指令。（錯誤提示：{str(e)}）"
+                    img_url, img_caption = None, None
+
+            # 3. 雙重防線：若回合計數達 3 輪以上，且未有效處理癌症轉折，強制爆發家屬崩潰 AAD 劇本
+            if st.session_state.round_count >= 3 and "AAD" not in user_input and "解釋" not in user_input and "轉院" not in user_input:
+                nurse_talk = (
+                    "😫 **（⚠️ 病人與家屬得知 4/9 切片報告為 adenocarcinoma 且 4/11 MRI 證實多發性肝轉移後，情緒全面崩潰）**\n\n"
+                    "「**張先生眼眶泛紅哀傷：** 怎麼會這樣...我只是皮膚變黃而已...為什麼一檢查就是末期...」\n"
+                    "「**太太焦慮：** 醫師！前幾天診所分明說只是急性肝炎！為什麼來住幾天院，就變成癌症末期無法手術？！我們要求立刻辦**自動出院（AAD）**，我們要拿切片跟影像轉去台大醫院找名醫看！現在立刻幫我們弄手續，一分鐘都不要拖！」\n\n"
+                    "**【目前病患狀態】**：家屬防衛心極高，拒絕常規住院，強烈要求辦理 AAD 轉診台大。醫師，請執行高階醫病溝通（AAD 說明或備妥轉診資料）！"
+                )
+                img_url = "Liver_metastases_MRI.jpg"
+                img_caption = "圖：4/11 胰臟 MRI 顯示晚期多發性肝轉移惡性病灶"
+
+            # 4. 渲染護理師對話文字與動態觸發的醫學影像
+            st.markdown(nurse_talk)
             if img_url:
-                st.image(img_url, caption=img_caption, width=500)
-            
-        # 儲存至記憶庫
+                try:
+                    st.image(img_url, caption=img_caption, width=550)
+                except Exception:
+                    st.warning("⚠️ [臨床影像加載超時，系統已自動防護攔截，不影響網頁對答]")
+                    
+        # 5. 打包儲存到歷史紀錄中
         st.session_state.messages.append({
             "role": "model", 
-            "content": full_response,
+            "content": nurse_talk,
             "image_url": img_url,
             "image_caption": img_caption
         })
-        
-        # 音效自動播放控制
-        play_background_ambient()  
-            
         st.rerun()
