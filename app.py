@@ -172,13 +172,15 @@ with st.sidebar:
     st.subheader("張先生 (52 y/o) (Male)")
     st.write("**病史摘要：**\n糖尿病及 B 肝帶原。因全身發黃、尿液變茶色一個禮拜，由急診收治入院。CRE: 1.3 mg/dl, Total Bilirubin: 9.5 mg/dl。")
     
-# 💡 側邊欄元件（前面都有 4 個空格）
+# ─── 側邊欄圖片防護區 ───
     try:
-        # 💡 更換為全球標準醫學公開網址，相容性最高，絕對不破圖！
         st.image("eyes.jpg", caption="病人臨床表徵：鞏膜黃染 (Icteric sclera)", use_container_width=True)
     except Exception:
+        # 💡 關鍵修正點（第 180 行）：這裡必須有一行往右縮排 8 個空格的指令，絕對不能留空！
+        st.caption("⚠️ [側邊欄參考圖片載入中]")
 
-# ─── 🔄 聊天畫面渲染 ───
+# ─── 🔄 STREAMLIT 聊天畫面記憶庫初始化 ───
+# 💡 檢查點（第 182 行）：這一行 if 必須完全貼齊最左邊（0 個空格），不能縮排！
 if "messages" not in st.session_state:
     reset_simulation()
 
