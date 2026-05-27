@@ -178,12 +178,11 @@ with st.sidebar:
     except Exception:
         st.caption("⚠️ [側邊欄參考圖片載入中]")
 
-# ─── 🔄 STREAMLIT 聊天畫面記憶庫初始化 ───
-# 💡 關鍵修正：這一行 if 必須完全靠到最左邊（完全沒有空格），它是獨立的主線！
+# ─── 🔄 聊天畫面渲染 ───
 if "messages" not in st.session_state:
     reset_simulation()
 
-# 顯示歷史對話紀錄（20 分鐘內持續追蹤，內建 try-except 外部防破圖保護罩）
+# 顯示歷史對話紀錄
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -191,9 +190,11 @@ for msg in st.session_state.messages:
             try:
                 st.image(msg["image_url"], caption=msg.get("image_caption"), width=550)
             except Exception:
+                # 💡 關鍵修正點：在第 193 行 except 內部，必須補上這行並往右縮排 16 個空格！
+                st.caption("⚠️ [歷史影像下載超時]")
 
-
-# ─── 住院醫師（使用者）輸入處理區 ───
+# ─── 住院醫師輸入處理區 ───
+# 💡 這一行（第 197 行）是獨立的主線，必須完全靠左（0 個空格），不能縮排！
 if st.session_state.time_up:
     st.error("⏱️ 20分鐘評估時間已結束！前方的對話與醫療影像紀錄已自動清除完畢。")
     st.info("💡 請點擊左側面板的「🔄 開始新回合」按鈕重新發起挑戰。")
